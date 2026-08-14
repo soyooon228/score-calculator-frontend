@@ -1,381 +1,227 @@
 import React, { useState, useEffect } from 'react';
 
 function App() {
-  // 🔑 공공데이터포털에서 발급받으신 일반 인증키 (Encoding 키 적용)
+  // 🔑 공공데이터포털 일반 인증키 (Encoding)
   const API_KEY = 'JBZ0DLLXthPItJbf1I%2FG3U8UVO1fwhw5tL6FEneb5ek6Tovl6V9xHsqE%2F8EFdiYDEEeEhtN%2B7e9PZDMvxHXU1w%3D%3D';
 
   // 상태 관리
-  const [apiCompanies, setApiCompanies] = useState([]);
-  const [isLoadingApi, setIsLoadingApi] = useState(true);
-  const [apiError, setApiError] = useState(null);
-
-  // 사용자가 선택한 공공기관 목록
-  const [selectedCompanies, setSelectedCompanies] = useState([]);
-
-  // 개인 스펙 상태
+  const [jobs, setJobs] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [userRegion, setUserRegion] = useState('전북');
-  const [selectedCertIds, setSelectedCertIds] = useState([]);
-  const [results, setResults] = useState([]);
-  const [calculating, setCalculating] = useState(false);
 
-  // 보유 자격증 데이터
-  const CERTIFICATES = [
-    { id: 1, name: 'SQLD', category: 'DATA', score: 3 },
-    { id: 2, name: 'ADsP', category: 'DATA', score: 3 },
-    { id: 3, name: 'ADP (데이터분석전문가)', category: 'DATA', score: 5 },
-    { id: 4, name: '정보처리기사', category: 'IT', score: 5 },
-    { id: 5, name: '컴퓨터활용능력 1급', category: 'IT', score: 3 },
-    { id: 6, name: '컴퓨터활용능력 2급', category: 'IT', score: 1.5 },
-    { id: 7, name: '한국사능력검정 1급', category: 'HISTORY', score: 5 },
-    { id: 8, name: 'KBS한국어능력시험', category: 'LANG', score: 3 },
-    { id: 9, name: 'TOEIC 850점 이상', category: 'LANG', score: 5 },
-  ];
+  // 내 보유 자격증 체크리스트
+  const [myCertificates, setMyCertificates] = useState([
+    { id: 'sqld', name: 'SQLD', regex: /(SQLD|SQL 개발자|SQLD자격증)/i, score: 3, checked: true },
+    { id: 'adsp', name: 'ADsP', regex: /(ADsP|데이터분석준전문가|데이터 분석 준전문가)/i, score: 3, checked: true },
+    { id: 'adp', name: 'ADP', regex: /(ADP|데이터분석전문가|데이터 분석 전문가)/i, score: 5, checked: false },
+    { id: 'qip', name: '정보처리기사', regex: /(정보처리기사|정처기)/i, score: 5, checked: false },
+    { id: 'com1', name: '컴퓨터활용능력 1급', regex: /(컴퓨터활용능력 1급|컴활 1급|컴활1급)/i, score: 3, checked: false },
+    { id: 'history', name: '한국사 1급', regex: /(한국사 1급|한국사능력검정 1급|한능검 1급)/i, score: 5, checked: false },
+  ]);
 
-  // 1. 공공데이터포털 API 호출 (End Point 및 Decoding 안전 처리)
+  // 자격증 선택 체크박스 변경
+  const handleCertCheck = (id) => {
+    setMyCertificates((prev) =>
+      prev.map((cert) => (cert.id === id ? { ...cert, checked: !cert.checked } : cert))
+    );
+  };
+
+  // 📡 ALIO 채용공고 API 호출 및 스마트 텍스트 파싱
   useEffect(() => {
-    const fetchPublicCompanies = async () => {
-      setIsLoadingApi(true);
-      setApiError(null);
-
-      // 이미 인코딩된 키인 경우 decodeURIComponent로 정제 후 처리
+    const fetchJobNotices = async () => {
+      setLoading(true);
       const decodedKey = decodeURIComponent(API_KEY);
-      
-      // 이미지상의 End Point: https://apis.data.go.kr/1051000/public_inst
-      const url = `https://apis.data.go.kr/1051000/public_inst/getPublicInsttList?serviceKey=${encodeURIComponent(decodedKey)}&pageNo=1&numOfRows=500&resultType=json`;
+
+      // 공공기관 채용공고 API Endpoint
+      const url = `https://apis.data.go.kr/1051000/recruitment/getRecruitmentList?serviceKey=${encodeURIComponent(decodedKey)}&numOfRows=15&pageNo=1&resultType=json`;
 
       try {
         const response = await fetch(url);
         const data = await response.json();
-
-        // API 응답 데이터 파싱
         const items = data?.response?.body?.items || data?.items || [];
 
         if (Array.isArray(items) && items.length > 0) {
-          const formattedList = items.map((item, index) => ({
-            id: index + 1,
-            name: item.insttNm || item.publicInsttNm || item.korNm || '기관명 없음',
-            region: item.location || item.addr || item.region || '전국',
-            type: item.insttType || item.type || '공공기관',
-          }));
-
-          setApiCompanies(formattedList);
+          setJobs(items);
         } else {
-          // 키 승인 대기 중이거나 응답 구조가 다를 경우 대비 백업 목록
-          throw new Error('API 응답에 목록 데이터가 없습니다.');
+          throw new Error('API 데이터 없음');
         }
       } catch (err) {
-        console.warn('API 연동 실패 (승인 대기 중이거나 CORS 제한 가능성):', err);
-        setApiError('API 승인 대기 중이거나 호출 형식이 변경되었습니다.');
-        
-        // API 승인 대기 중에도 테스트해볼 수 있도록 기본 전체 공공기관 데이터 제공
-        setApiCompanies([
-          { id: 1, name: '국민연금공단', region: '전북', type: '준정부기관' },
-          { id: 2, name: 'LX 한국국토정보공사', region: '전북', type: '준정부기관' },
-          { id: 3, name: '한국전력공사', region: '전남', type: '공기업' },
-          { id: 4, name: '한국수자원공사', region: '대전', type: '공기업' },
-          { id: 5, name: '한국철도공사 (코레일)', region: '대전', type: '공기업' },
-          { id: 6, name: '국민건강보험공단', region: '강원', type: '준정부기관' },
-          { id: 7, name: '한국가스공사', region: '대구', type: '공기업' },
-          { id: 8, name: '한국토지주택공사 (LH)', region: '경남', type: '공기업' },
-          { id: 9, name: '한국농어촌공사', region: '전남', type: '준정부기관' },
-          { id: 10, name: '한국도로공사', region: '경북', type: '공기업' },
+        console.warn('API 연동 실패 또는 승인 대기 중 (샘플 채용공고 데이터 로드):', err);
+
+        // API 연동 승인 대기 중에도 실시간 파싱 테스트를 위한 실제 스타일 샘플 공고 데이터
+        setJobs([
+          {
+            pblancId: 'JOB001',
+            insttNm: '국민연금공단',
+            pblancNm: '2026년도 신입직원(행정/전산/데이터) 공개채용 공고',
+            workRgnNm: '전북 전주시',
+            qualfCn: '전산/데이터 직무: SQLD, ADsP 보유자 우대. 정보처리기사 가산점 5점 부여.',
+            preferenceCn: '전북지역 대학 졸업자(이전지역인재) 가산점 5% 적용. 한국사능력검정 1급 우대.',
+          },
+          {
+            pblancId: 'JOB002',
+            insttNm: 'LX 한국국토정보공사',
+            pblancNm: '2026년 상반기 공간정보 및 IT 정규직 채용',
+            workRgnNm: '전북 전주시',
+            qualfCn: 'IT 직무: 정보처리기사 필수. SQLD, ADsP 자격증 소지자 서류전형 가산점 부여.',
+            preferenceCn: '이전지역인재(전북 소재 대학 졸업자) 우대.',
+          },
+          {
+            pblancId: 'JOB003',
+            insttNm: '한국전력공사',
+            pblancNm: '2026년 대졸수준 신입사원 공채',
+            workRgnNm: '전남 나주시',
+            qualfCn: '정보통신 분야: 정보처리기사(+5점), 컴퓨터활용능력 1급(+3점) 인정.',
+            preferenceCn: '광주/전남 지역인재 우대.',
+          },
         ]);
       } finally {
-        setIsLoadingApi(false);
+        setLoading(false);
       }
     };
 
-    fetchPublicCompanies();
+    fetchJobNotices();
   }, [API_KEY]);
 
-  // 드롭다운 선택
-  const handleSelectCompany = (e) => {
-    const selectedId = Number(e.target.value);
-    if (!selectedId) return;
+  // 🤖 공고문 파싱 및 가산점 계산 엔진
+  const parseJobBonus = (job) => {
+    // 공고문 전체 텍스트 병합 (제목 + 자격요건 + 우대사항)
+    const fullContent = `${job.pblancNm || ''} ${job.qualfCn || ''} ${job.preferenceCn || ''}`;
 
-    const targetComp = apiCompanies.find((c) => c.id === selectedId);
-    if (targetComp && !selectedCompanies.some((c) => c.id === targetComp.id)) {
-      setSelectedCompanies([...selectedCompanies, targetComp]);
-    }
-  };
+    // 1. 선택된 자격증 중 공고문에 언급된 자격증 정규식 매칭
+    const activeCerts = myCertificates.filter((c) => c.checked);
+    const matchedCerts = activeCerts.filter((cert) => cert.regex.test(fullContent));
+    const certScore = matchedCerts.reduce((sum, c) => sum + c.score, 0);
 
-  // 선택된 공공기관 삭제
-  const handleRemoveCompany = (id) => {
-    setSelectedCompanies(selectedCompanies.filter((c) => c.id !== id));
-  };
+    // 2. 이전지역인재 여부 파싱 (지역명 및 이전지역 키워드 탐색)
+    const regionRegex = new RegExp(`(${userRegion}|이전지역|지역인재)`, 'i');
+    const isRegionalMatch = regionRegex.test(fullContent) || (job.workRgnNm && job.workRgnNm.includes(userRegion));
+    const regionalScore = isRegionalMatch ? 5 : 0;
 
-  // 자격증 선택
-  const handleCertChange = (id) => {
-    setSelectedCertIds((prev) =>
-      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
-    );
-  };
-
-  // 가산점 산출
-  const handleCalculate = () => {
-    setCalculating(true);
-
-    const selectedCerts = CERTIFICATES.filter((c) => selectedCertIds.includes(c.id));
-    const certScoreSum = selectedCerts.reduce((acc, curr) => acc + curr.score, 0);
-
-    setTimeout(() => {
-      const calculated = selectedCompanies.map((comp) => {
-        const isRegionalMatch = comp.region.includes(userRegion);
-        const regionalBonus = isRegionalMatch ? 5 : 0;
-        const totalScore = Math.min(certScoreSum + regionalBonus, 20);
-
-        return {
-          companyName: comp.name,
-          region: comp.region,
-          type: comp.type,
-          isRegionalTalent: isRegionalMatch,
-          totalScore: totalScore,
-          maxScoreCap: 20,
-          appliedCertificates: selectedCerts.map((c) => c.name),
-        };
-      });
-
-      setResults(calculated);
-      setCalculating(false);
-    }, 300);
+    return {
+      matchedCertNames: matchedCerts.map((c) => c.name),
+      certScore,
+      isRegionalMatch,
+      regionalScore,
+      totalScore: Math.min(certScore + regionalScore, 20), // 최대 가점 상한
+    };
   };
 
   return (
-    <div style={{ backgroundColor: '#f4f6f9', minHeight: '100vh', padding: '40px 20px', fontFamily: "'Pretendard', sans-serif" }}>
-      <div style={{ maxWidth: '900px', margin: '0 auto' }}>
+    <div style={{ backgroundColor: '#f3f4f6', minHeight: '100vh', padding: '30px 15px', fontFamily: 'sans-serif' }}>
+      <div style={{ maxWidth: '850px', margin: '0 auto' }}>
         
         {/* 헤더 */}
-        <header style={{ textAlign: 'center', marginBottom: '30px' }}>
-          <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#4f46e5', backgroundColor: '#eef2ff', padding: '6px 16px', borderRadius: '20px' }}>
-            공공데이터포털 API 실시간 연결됨
+        <div style={{ textAlign: 'center', marginBottom: '25px' }}>
+          <span style={{ backgroundColor: '#dbeafe', color: '#1e40af', padding: '4px 12px', borderRadius: '12px', fontSize: '13px', fontWeight: 'bold' }}>
+            ALIO 채용공고 실시간 자동 파서
           </span>
-          <h1 style={{ fontSize: '32px', color: '#1f2937', marginTop: '12px', marginBottom: '8px' }}>🎯 전국 공공기관 가산점 계산기</h1>
-          <p style={{ color: '#6b7280', fontSize: '15px' }}>
-            원하시는 공공기관을 드롭다운에서 선택해 가산점을 산출하세요.
-          </p>
-        </header>
+          <h1 style={{ fontSize: '28px', color: '#111827', marginTop: '10px' }}>🤖 공공기관 채용공고 가산점 자동 분석</h1>
+        </div>
 
-        {/* 메인 입력 카드 */}
-        <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '30px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)', marginBottom: '30px' }}>
-          
-          {/* 1. 출신 대학 지역 선택 */}
-          <div style={{ marginBottom: '24px' }}>
-            <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
-              📍 출신 대학 지역 (지역인재 우대 매칭)
-            </label>
+        {/* 조건 설정 섹션 */}
+        <div style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px', marginBottom: '20px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+          <div style={{ marginBottom: '15px' }}>
+            <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '6px' }}>📍 출신 대학 지역</label>
             <select
               value={userRegion}
               onChange={(e) => setUserRegion(e.target.value)}
-              style={{ width: '100%', padding: '12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '15px', backgroundColor: '#fff' }}
+              style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #ccc' }}
             >
               <option value="전북">전북 (전라북도 소재 대학)</option>
               <option value="전남">전남 / 광주</option>
               <option value="대전">대전 / 충청</option>
               <option value="대구">대구 / 경북</option>
-              <option value="부산">부산 / 경남</option>
-              <option value="강원">강원</option>
               <option value="서울">서울 / 수도권</option>
             </select>
           </div>
 
-          {/* 2. API 연결된 드롭다운 목록 */}
-          <div style={{ marginBottom: '24px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-              <label style={{ fontWeight: '600', color: '#374151' }}>
-                🏢 공공기관 선택 ({isLoadingApi ? '불러오는 중...' : `${apiCompanies.length}개 기관 로드완료`})
-              </label>
-              {selectedCompanies.length > 0 && (
-                <span style={{ fontSize: '13px', color: '#4f46e5', fontWeight: 'bold' }}>{selectedCompanies.length}개 선택됨</span>
-              )}
-            </div>
-
-            <select
-              onChange={handleSelectCompany}
-              defaultValue=""
-              disabled={isLoadingApi}
-              style={{ 
-                width: '100%', 
-                padding: '12px', 
-                border: '1px solid #d1d5db', 
-                borderRadius: '8px', 
-                fontSize: '15px', 
-                backgroundColor: '#fff',
-                marginBottom: '12px',
-                cursor: 'pointer'
-              }}
-            >
-              <option value="" disabled>
-                {isLoadingApi 
-                  ? '⏳ API에서 기관 목록을 가져오는 중...' 
-                  : `-- 클릭하여 공공기관을 선택하세요 (${apiCompanies.length}개) --`}
-              </option>
-              {apiCompanies.map((comp) => (
-                <option key={comp.id} value={comp.id}>
-                  {comp.name} ({comp.region})
-                </option>
+          <div>
+            <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '6px' }}>📜 내가 보유한 자격증 선택</label>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '8px' }}>
+              {myCertificates.map((cert) => (
+                <label
+                  key={cert.id}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '8px 12px',
+                    border: cert.checked ? '1px solid #3b82f6' : '1px solid #e5e7eb',
+                    backgroundColor: cert.checked ? '#eff6ff' : '#f9fafb',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={cert.checked}
+                    onChange={() => handleCertCheck(cert.id)}
+                  />
+                  <span>{cert.name}</span>
+                </label>
               ))}
-            </select>
-
-            {/* 선택된 공공기관 태그 */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '12px', backgroundColor: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb', minHeight: '52px', alignItems: 'center' }}>
-              {selectedCompanies.length === 0 ? (
-                <span style={{ color: '#9ca3af', fontSize: '14px' }}>위 드롭다운을 열어 분석할 기관을 선택해 주세요.</span>
-              ) : (
-                selectedCompanies.map((comp) => (
-                  <span
-                    key={comp.id}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '6px',
-                      backgroundColor: '#eef2ff',
-                      color: '#4f46e5',
-                      border: '1px solid #c7d2fe',
-                      padding: '6px 12px',
-                      borderRadius: '20px',
-                      fontSize: '13px',
-                      fontWeight: '600'
-                    }}
-                  >
-                    {comp.name}
-                    <button
-                      onClick={() => handleRemoveCompany(comp.id)}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        color: '#4f46e5',
-                        cursor: 'pointer',
-                        fontSize: '14px',
-                        fontWeight: 'bold',
-                        padding: '0 2px'
-                      }}
-                    >
-                      ✕
-                    </button>
-                  </span>
-                ))
-              )}
             </div>
           </div>
-
-          {/* 3. 자격증 선택 */}
-          <div style={{ marginBottom: '16px' }}>
-            <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
-              📜 보유 자격증 선택
-            </label>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '10px' }}>
-              {CERTIFICATES.map((cert) => {
-                const isSelected = selectedCertIds.includes(cert.id);
-                return (
-                  <div
-                    key={cert.id}
-                    onClick={() => handleCertChange(cert.id)}
-                    style={{
-                      border: isSelected ? '2px solid #4f46e5' : '1px solid #e5e7eb',
-                      backgroundColor: isSelected ? '#f5f3ff' : 'white',
-                      padding: '12px',
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px'
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => {}}
-                      style={{ width: '16px', height: '16px', accentColor: '#4f46e5' }}
-                    />
-                    <div>
-                      <div style={{ fontWeight: '600', color: '#1f2937', fontSize: '13px' }}>{cert.name}</div>
-                      <div style={{ fontSize: '11px', color: '#9ca3af' }}>{cert.category} 분야 (+{cert.score}점)</div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <button
-            onClick={handleCalculate}
-            disabled={calculating || selectedCompanies.length === 0}
-            style={{
-              marginTop: '20px',
-              width: '100%',
-              padding: '16px',
-              backgroundColor: selectedCompanies.length === 0 ? '#9ca3af' : '#4f46e5',
-              color: 'white',
-              border: 'none',
-              borderRadius: '10px',
-              fontSize: '16px',
-              fontWeight: 'bold',
-              cursor: selectedCompanies.length === 0 ? 'not-allowed' : 'pointer',
-              boxShadow: '0 4px 12px rgba(79, 70, 229, 0.3)'
-            }}
-          >
-            {calculating ? '계산하는 중...' : `${selectedCompanies.length}개 선택 기관 가산점 계산하기`}
-          </button>
         </div>
 
-        {/* 결과 카드 */}
-        {results.length > 0 && (
-          <div>
-            <h2 style={{ fontSize: '20px', color: '#1f2937', marginBottom: '16px' }}>📊 선택 기관별 가산점 분석 결과</h2>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {results.map((item, idx) => {
-                const percentage = Math.min(100, Math.round((item.totalScore / item.maxScoreCap) * 100));
+        {/* 채용공고 및 파싱 결과 목록 */}
+        <h2 style={{ fontSize: '18px', color: '#374151', marginBottom: '12px' }}>
+          📋 실시간 채용공고 분석 목록 ({jobs.length}건)
+        </h2>
 
-                return (
-                  <div
-                    key={idx}
-                    style={{
-                      backgroundColor: 'white',
-                      borderRadius: '12px',
-                      padding: '20px',
-                      borderLeft: '6px solid #4f46e5',
-                      boxShadow: '0 2px 4px rgba(0, 0, 0, 0.05)'
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px' }}>
-                      <div>
-                        <h3 style={{ margin: 0, fontSize: '18px', color: '#111827' }}>{item.companyName}</h3>
-                        <span style={{ fontSize: '13px', color: '#6b7280' }}>소재지: {item.region}</span>
-                      </div>
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '40px', backgroundColor: 'white', borderRadius: '12px' }}>
+            ⏳ ALIO 채용공고 및 우대조건 텍스트를 실시간 분석 중입니다...
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+            {jobs.map((job, idx) => {
+              const analysis = parseJobBonus(job);
 
-                      {item.isRegionalTalent ? (
-                        <span style={{ backgroundColor: '#ecfdf5', color: '#059669', border: '1px solid #a7f3d0', padding: '4px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: '600' }}>
-                          🌱 이전지역인재 가점 적용 ({userRegion})
+              return (
+                <div key={job.pblancId || idx} style={{ backgroundColor: 'white', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', borderLeft: '5px solid #3b82f6' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
+                    <div>
+                      <span style={{ fontSize: '12px', color: '#6b7280', fontWeight: 'bold' }}>{job.insttNm}</span>
+                      <h3 style={{ margin: '4px 0', fontSize: '16px', color: '#111827' }}>{job.pblancNm}</h3>
+                      <p style={{ margin: 0, fontSize: '13px', color: '#9ca3af' }}>📍 근무지: {job.workRgnNm || '전국'}</p>
+                    </div>
+
+                    <div style={{ textAlign: 'right', minWidth: '90px' }}>
+                      <span style={{ fontSize: '20px', fontWeight: 'bold', color: '#2563eb' }}>+{analysis.totalScore}점</span>
+                      <div style={{ fontSize: '11px', color: '#6b7280' }}>예상 가산점</div>
+                    </div>
+                  </div>
+
+                  {/* 자동 분석 리포트 */}
+                  <div style={{ marginTop: '12px', backgroundColor: '#f8fafc', padding: '12px', borderRadius: '8px', fontSize: '13px' }}>
+                    <div style={{ marginBottom: '4px' }}>
+                      <strong>🔍 자동 감지된 자격증: </strong>
+                      {analysis.matchedCertNames.length > 0 ? (
+                        <span style={{ color: '#059669', fontWeight: 'bold' }}>
+                          {analysis.matchedCertNames.join(', ')} (+{analysis.certScore}점)
                         </span>
                       ) : (
-                        <span style={{ backgroundColor: '#f3f4f6', color: '#6b7280', padding: '4px 10px', borderRadius: '12px', fontSize: '12px' }}>
-                          일반 전형
-                        </span>
+                        <span style={{ color: '#9ca3af' }}>공고문 텍스트 내 해당 자격증 언급 없음</span>
                       )}
                     </div>
 
-                    <div style={{ marginTop: '16px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', marginBottom: '6px' }}>
-                        <span style={{ fontWeight: 'bold', color: '#4f46e5' }}>+{item.totalScore}점 / {item.maxScoreCap}점 만점</span>
-                        <span style={{ fontWeight: '600', color: '#6b7280' }}>달성률 {percentage}%</span>
-                      </div>
-                      <div style={{ width: '100%', height: '10px', backgroundColor: '#e5e7eb', borderRadius: '5px', overflow: 'hidden' }}>
-                        <div style={{ width: `${percentage}%`, height: '100%', backgroundColor: percentage === 100 ? '#10b981' : '#4f46e5', transition: 'width 0.4s ease' }}></div>
-                      </div>
-                    </div>
-
-                    <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid #f3f4f6', fontSize: '13px', color: '#4b5563' }}>
-                      <strong>인정 자격증: </strong>
-                      {item.appliedCertificates.length > 0 ? (
-                        <span style={{ color: '#059669', fontWeight: '500' }}>{item.appliedCertificates.join(', ')}</span>
+                    <div>
+                      <strong>🌱 지역인재 우대 적용: </strong>
+                      {analysis.isRegionalMatch ? (
+                        <span style={{ color: '#2563eb', fontWeight: 'bold' }}>
+                          해당 조건 탐지됨 (+{analysis.regionalScore}점)
+                        </span>
                       ) : (
-                        <span style={{ color: '#9ca3af' }}>선택 자격증 없음</span>
+                        <span style={{ color: '#9ca3af' }}>미해당</span>
                       )}
                     </div>
                   </div>
-                );
-              })}
-            </div>
+                </div>
+              );
+            })}
           </div>
         )}
 
