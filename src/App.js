@@ -1,22 +1,24 @@
 import React, { useState, useEffect } from 'react';
 
 function App() {
-  // 🔑 공공데이터포털에서 발급받은 일반 인증키(Encoding 또는 Decoding) 입력
+  // 🔑 공공데이터포털(data.go.kr)에서 발급받은 API 서비스키 입력
   const PUBLIC_DATA_API_KEY = 'JBZ0DLLXtHpItJbF1I%2FG3U8UVO1fwhw5tL6FEneb5ek6Tovl6V9xHsqE%2F8EFdiYDEEeEhtN%2B7e9PZDMvxHXU1w%3D%3D';
 
-  // 상태 관리
-  const [publicCompanies, setPublicCompanies] = useState([]);
-  const [selectedCompanyNames, setSelectedCompanyNames] = useState([]);
-  const [companySearch, setCompanySearch] = useState('');
-  
-  // 자격증 및 개인 스펙 상태
-  const [selectedCertIds, setSelectedCertIds] = useState([]);
-  const [userRegion, setUserRegion] = useState('전북');
-  const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [apiLoading, setApiLoading] = useState(true);
+  // API로 불러온 전체 공공기관 데이터 저장
+  const [apiCompanies, setApiCompanies] = useState([]);
+  const [isLoadingApi, setIsLoadingApi] = useState(true);
+  const [apiError, setApiError] = useState(null);
 
-  // 기본 자격증 목록
+  // 사용자가 선택한 공공기관 목록
+  const [selectedCompanies, setSelectedCompanies] = useState([]);
+
+  // 개인 스펙 및 상태 관리
+  const [userRegion, setUserRegion] = useState('전북');
+  const [selectedCertIds, setSelectedCertIds] = useState([]);
+  const [results, setResults] = useState([]);
+  const [calculating, setCalculating] = useState(false);
+
+  // 보유 자격증 데이터
   const CERTIFICATES = [
     { id: 1, name: 'SQLD', category: 'DATA', score: 3 },
     { id: 2, name: 'ADsP', category: 'DATA', score: 3 },
@@ -29,89 +31,86 @@ function App() {
     { id: 9, name: 'TOEIC 850점 이상', category: 'LANG', score: 5 },
   ];
 
-  // 1. 공공데이터포털 Open API 호출하여 전체 공공기관 데이터 로드
+  // 1. 공공데이터포털 ALIO API 호출 (페이지 로드시 자동 실행)
   useEffect(() => {
-    const fetchAllPublicInstitutions = async () => {
-      setApiLoading(true);
-      
-      // 기획재정부 공공기관 지정 현황 API 호출 URL
+    const fetchPublicCompanies = async () => {
+      setIsLoadingApi(true);
+      setApiError(null);
+
+      // ALIO 공공기관 목록 오픈 API URL (최대 500개 한 번에 조회)
       const url = `https://apis.data.go.kr/1051000/ALIO_OpenAPI/getPublicInsttList?serviceKey=${PUBLIC_DATA_API_KEY}&pageNo=1&numOfRows=500&resultType=json`;
 
       try {
         const response = await fetch(url);
         const data = await response.json();
-        
-        // API 응답 데이터 파싱
-        if (data.response && data.response.body && data.response.body.items) {
+
+        // API 응답 구조 추출
+        if (data?.response?.body?.items) {
           const items = data.response.body.items;
-          // 기관명 및 주소 추출
-          const list = items.map((item, index) => ({
-            id: index + 1,
-            name: item.insttNm || item.publicInsttNm, // 기관명
-            type: item.insttType || '공공기관',      // 기관유형
-            region: item.location || '전국',         // 주소/소재지
-          }));
           
-          setPublicCompanies(list);
-          // 기본 선택값으로 3개 지정
-          if (list.length > 0) {
-            setSelectedCompanyNames([list[0].name, list[1]?.name].filter(Boolean));
-          }
+          // API 데이터를 가공하여 저장
+          const formattedList = items.map((item, index) => ({
+            id: index + 1,
+            name: item.insttNm || item.publicInsttNm || '명칭 없음',
+            region: item.location || item.addr || '전국',
+            type: item.insttType || '공공기관',
+          }));
+
+          setApiCompanies(formattedList);
+        } else {
+          throw new Error('API 데이터 형식이 올바르지 않거나 키가 유효하지 않습니다.');
         }
-      } catch (error) {
-        console.warn('API 키 미입력 또는 연동 대기 중입니다. 기본 공공기관 데이터를 표시합니다.', error);
-        // API 연동 전/실패 시 보여줄 확장 기본 데이터
-        setPublicCompanies([
-          { id: 1, name: '국민연금공단', region: '전북' },
-          { id: 2, name: 'LX 한국국토정보공사', region: '전북' },
-          { id: 3, name: '한국전력공사', region: '전남' },
-          { id: 4, name: '한국수자원공사', region: '대전' },
-          { id: 5, name: '한국철도공사 (코레일)', region: '대전' },
-          { id: 6, name: '국민건강보험공단', region: '강원' },
-          { id: 7, name: '한국가스공사', region: '대구' },
-          { id: 8, name: '한국토지주택공사 (LH)', region: '경남' },
-        ]);
-        setSelectedCompanyNames(['국민연금공단', 'LX 한국국토정보공사']);
+      } catch (err) {
+        console.error('API 연동 실패:', err);
+        setApiError('API 키를 확인해주시거나 잠시 후 다시 시도해주세요.');
       } finally {
-        setApiLoading(false);
+        setIsLoadingApi(false);
       }
     };
 
-    fetchAllPublicInstitutions();
+    fetchPublicCompanies();
   }, [PUBLIC_DATA_API_KEY]);
 
-  // 자격증 토글
+  // 드롭다운에서 공공기관 선택 시 추가
+  const handleSelectCompany = (e) => {
+    const selectedId = Number(e.target.value);
+    if (!selectedId) return;
+
+    const targetComp = apiCompanies.find((c) => c.id === selectedId);
+    if (targetComp && !selectedCompanies.some((c) => c.id === targetComp.id)) {
+      setSelectedCompanies([...selectedCompanies, targetComp]);
+    }
+  };
+
+  // 선택된 공공기관 삭제 (태그 X 버튼)
+  const handleRemoveCompany = (id) => {
+    setSelectedCompanies(selectedCompanies.filter((c) => c.id !== id));
+  };
+
+  // 자격증 체크 토글
   const handleCertChange = (id) => {
     setSelectedCertIds((prev) =>
       prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
     );
   };
 
-  // 공공기관 선택/해제 토글
-  const handleCompanyToggle = (name) => {
-    setSelectedCompanyNames((prev) =>
-      prev.includes(name) ? prev.filter((item) => item !== name) : [...prev, name]
-    );
-  };
-
-  // 가산점 산출
+  // 가산점 계산하기
   const handleCalculate = () => {
-    setLoading(true);
+    setCalculating(true);
 
     const selectedCerts = CERTIFICATES.filter((c) => selectedCertIds.includes(c.id));
     const certScoreSum = selectedCerts.reduce((acc, curr) => acc + curr.score, 0);
 
     setTimeout(() => {
-      const calculated = selectedCompanyNames.map((compName) => {
-        const compInfo = publicCompanies.find((c) => c.name === compName);
-        const compRegion = compInfo ? compInfo.region : '';
-        const isRegionalMatch = compRegion.includes(userRegion);
+      const calculated = selectedCompanies.map((comp) => {
+        const isRegionalMatch = comp.region.includes(userRegion);
         const regionalBonus = isRegionalMatch ? 5 : 0;
         const totalScore = Math.min(certScoreSum + regionalBonus, 20);
 
         return {
-          companyName: compName,
-          region: compRegion || '전국',
+          companyName: comp.name,
+          region: comp.region,
+          type: comp.type,
           isRegionalTalent: isRegionalMatch,
           totalScore: totalScore,
           maxScoreCap: 20,
@@ -120,14 +119,9 @@ function App() {
       });
 
       setResults(calculated);
-      setLoading(false);
+      setCalculating(false);
     }, 300);
   };
-
-  // 검색어 필터링된 공공기관 전체 리스트
-  const filteredCompanies = publicCompanies.filter((comp) =>
-    comp.name.toLowerCase().includes(companySearch.toLowerCase())
-  );
 
   return (
     <div style={{ backgroundColor: '#f4f6f9', minHeight: '100vh', padding: '40px 20px', fontFamily: "'Pretendard', sans-serif" }}>
@@ -136,18 +130,18 @@ function App() {
         {/* 헤더 */}
         <header style={{ textAlign: 'center', marginBottom: '30px' }}>
           <span style={{ fontSize: '14px', fontWeight: 'bold', color: '#4f46e5', backgroundColor: '#eef2ff', padding: '6px 16px', borderRadius: '20px' }}>
-            공공데이터포털 ALIO 전체 연동 v3.5
+            공공데이터포털 ALIO API 실시간 연동
           </span>
           <h1 style={{ fontSize: '32px', color: '#1f2937', marginTop: '12px', marginBottom: '8px' }}>🎯 전국 공공기관 가산점 계산기</h1>
           <p style={{ color: '#6b7280', fontSize: '15px' }}>
-            대한민국 300+개 전체 공공기관을 실시간으로 조회하고 내 가산점을 계산해보세요.
+            공공데이터포털 API로 가져온 대한민국 전체 공공기관 중 선택하여 가산점을 산출하세요.
           </p>
         </header>
 
         {/* 메인 입력 카드 */}
         <div style={{ backgroundColor: 'white', borderRadius: '16px', padding: '30px', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)', marginBottom: '30px' }}>
           
-          {/* 1. 대학 지역 선택 */}
+          {/* 1. 출신 대학 지역 선택 */}
           <div style={{ marginBottom: '24px' }}>
             <label style={{ display: 'block', fontWeight: '600', color: '#374151', marginBottom: '8px' }}>
               📍 출신 대학 지역 (지역인재 우대 매칭)
@@ -155,7 +149,7 @@ function App() {
             <select
               value={userRegion}
               onChange={(e) => setUserRegion(e.target.value)}
-              style={{ width: '100%', padding: '12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '15px' }}
+              style={{ width: '100%', padding: '12px', border: '1px solid #d1d5db', borderRadius: '8px', fontSize: '15px', backgroundColor: '#fff' }}
             >
               <option value="전북">전북 (전라북도 소재 대학)</option>
               <option value="전남">전남 / 광주</option>
@@ -167,46 +161,86 @@ function App() {
             </select>
           </div>
 
-          {/* 2. 전체 공공기관 실시간 검색 & 선택 */}
+          {/* 2. API 기반 공공기관 전체 목록 드롭다운 */}
           <div style={{ marginBottom: '24px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
               <label style={{ fontWeight: '600', color: '#374151' }}>
-                🏢 전체 공공기관 목록 ({publicCompanies.length}개 로드됨 / {selectedCompanyNames.length}개 선택)
+                🏢 공공기관 선택 ({isLoadingApi ? 'API 로딩 중...' : `${apiCompanies.length}개 기관 불러옴`})
               </label>
-              {apiLoading && <span style={{ fontSize: '12px', color: '#4f46e5' }}>API 데이터 불러오는 중...</span>}
+              {selectedCompanies.length > 0 && (
+                <span style={{ fontSize: '13px', color: '#4f46e5', fontWeight: 'bold' }}>{selectedCompanies.length}개 선택됨</span>
+              )}
             </div>
 
-            <input
-              type="text"
-              placeholder="찾고 싶은 공공기관 이름을 입력하세요 (예: 국민연금, 한국전력, 가스공사...)"
-              value={companySearch}
-              onChange={(e) => setCompanySearch(e.target.value)}
-              style={{ width: '100%', padding: '12px 14px', border: '1px solid #d1d5db', borderRadius: '8px', marginBottom: '10px', fontSize: '14px' }}
-            />
+            {/* 드롭다운 UI */}
+            <select
+              onChange={handleSelectCompany}
+              defaultValue=""
+              disabled={isLoadingApi || apiCompanies.length === 0}
+              style={{ 
+                width: '100%', 
+                padding: '12px', 
+                border: '1px solid #d1d5db', 
+                borderRadius: '8px', 
+                fontSize: '15px', 
+                backgroundColor: isLoadingApi ? '#f3f4f6' : '#fff',
+                marginBottom: '12px',
+                cursor: isLoadingApi ? 'wait' : 'pointer'
+              }}
+            >
+              <option value="" disabled>
+                {isLoadingApi 
+                  ? '⏳ 공공데이터포털에서 기관 목록을 불러오는 중입니다...' 
+                  : apiError 
+                  ? '⚠️ API 키 연동 필요 (API Key를 입력해주세요)' 
+                  : `-- 전체 ${apiCompanies.length}개 공공기관 중 선택하세요 --`}
+              </option>
+              {apiCompanies.map((comp) => (
+                <option key={comp.id} value={comp.id}>
+                  {comp.name} [{comp.type}] - {comp.region}
+                </option>
+              ))}
+            </select>
 
-            {/* 전체 기관 스크롤 리스트 */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '180px', overflowY: 'auto', padding: '12px', backgroundColor: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
-              {filteredCompanies.map((comp) => {
-                const isSelected = selectedCompanyNames.includes(comp.name);
-                return (
-                  <button
+            {/* 선택된 공공기관 태그 칩(Chip) 목록 */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '12px', backgroundColor: '#f9fafb', borderRadius: '8px', border: '1px solid #e5e7eb', minHeight: '52px', alignItems: 'center' }}>
+              {selectedCompanies.length === 0 ? (
+                <span style={{ color: '#9ca3af', fontSize: '14px' }}>드롭다운을 클릭하여 분석할 공공기관을 선택해 주세요.</span>
+              ) : (
+                selectedCompanies.map((comp) => (
+                  <span
                     key={comp.id}
-                    onClick={() => handleCompanyToggle(comp.name)}
                     style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      backgroundColor: '#eef2ff',
+                      color: '#4f46e5',
+                      border: '1px solid #c7d2fe',
                       padding: '6px 12px',
                       borderRadius: '20px',
-                      border: isSelected ? '1px solid #4f46e5' : '1px solid #d1d5db',
-                      backgroundColor: isSelected ? '#4f46e5' : 'white',
-                      color: isSelected ? 'white' : '#374151',
                       fontSize: '13px',
-                      cursor: 'pointer',
-                      transition: 'all 0.15s ease'
+                      fontWeight: '600'
                     }}
                   >
-                    {comp.name} {isSelected && '✓'}
-                  </button>
-                );
-              })}
+                    {comp.name}
+                    <button
+                      onClick={() => handleRemoveCompany(comp.id)}
+                      style={{
+                        background: 'none',
+                        border: 'none',
+                        color: '#4f46e5',
+                        cursor: 'pointer',
+                        fontSize: '14px',
+                        fontWeight: 'bold',
+                        padding: '0 2px'
+                      }}
+                    >
+                      ✕
+                    </button>
+                  </span>
+                ))
+              )}
             </div>
           </div>
 
@@ -225,7 +259,7 @@ function App() {
                     style={{
                       border: isSelected ? '2px solid #4f46e5' : '1px solid #e5e7eb',
                       backgroundColor: isSelected ? '#f5f3ff' : 'white',
-                      padding: '10px 12px',
+                      padding: '12px',
                       borderRadius: '8px',
                       cursor: 'pointer',
                       display: 'flex',
@@ -241,7 +275,7 @@ function App() {
                     />
                     <div>
                       <div style={{ fontWeight: '600', color: '#1f2937', fontSize: '13px' }}>{cert.name}</div>
-                      <div style={{ fontSize: '11px', color: '#9ca3af' }}>{cert.category} 분야</div>
+                      <div style={{ fontSize: '11px', color: '#9ca3af' }}>{cert.category} 분야 (+{cert.score}점)</div>
                     </div>
                   </div>
                 );
@@ -251,29 +285,29 @@ function App() {
 
           <button
             onClick={handleCalculate}
-            disabled={loading || selectedCompanyNames.length === 0}
+            disabled={calculating || selectedCompanies.length === 0}
             style={{
               marginTop: '20px',
               width: '100%',
               padding: '16px',
-              backgroundColor: selectedCompanyNames.length === 0 ? '#9ca3af' : '#4f46e5',
+              backgroundColor: selectedCompanies.length === 0 ? '#9ca3af' : '#4f46e5',
               color: 'white',
               border: 'none',
               borderRadius: '10px',
               fontSize: '16px',
               fontWeight: 'bold',
-              cursor: selectedCompanyNames.length === 0 ? 'not-allowed' : 'pointer',
+              cursor: selectedCompanies.length === 0 ? 'not-allowed' : 'pointer',
               boxShadow: '0 4px 12px rgba(79, 70, 229, 0.3)'
             }}
           >
-            {loading ? '산출하는 중...' : `${selectedCompanyNames.length}개 선택 기관 가산점 산출해보기`}
+            {calculating ? '가산점 계산 중...' : `${selectedCompanies.length}개 선택 기관 가산점 계산하기`}
           </button>
         </div>
 
         {/* 결과 카드 */}
         {results.length > 0 && (
           <div>
-            <h2 style={{ fontSize: '20px', color: '#1f2937', marginBottom: '16px' }}>📊 선택 기관별 가산점 분석 결과</h2>
+            <h2 style={{ fontSize: '20px', color: '#1f2937', marginBottom: '16px' }}>📊 API 연동 기관별 가산점 분석 결과</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               {results.map((item, idx) => {
                 const percentage = Math.min(100, Math.round((item.totalScore / item.maxScoreCap) * 100));
@@ -292,7 +326,7 @@ function App() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '8px' }}>
                       <div>
                         <h3 style={{ margin: 0, fontSize: '18px', color: '#111827' }}>{item.companyName}</h3>
-                        <span style={{ fontSize: '13px', color: '#6b7280' }}>소재지/지역: {item.region}</span>
+                        <span style={{ fontSize: '13px', color: '#6b7280' }}>소재지: {item.region} | 구분: {item.type}</span>
                       </div>
 
                       {item.isRegionalTalent ? (
